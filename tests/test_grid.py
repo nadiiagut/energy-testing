@@ -47,6 +47,7 @@ def simple_grid():
     return grid
 
 
+@pytest.mark.case("GR-001")
 def test_grid_initialization(simple_grid):
     """Test Case - Grid Initialization and Component Registration.
 
@@ -82,6 +83,7 @@ def test_grid_initialization(simple_grid):
     assert simple_grid.consumers["residential"].max_demand_kw == 800
 
 
+@pytest.mark.case("GR-002")
 def test_simulation(simple_grid):
     """Test Case - Basic Grid Simulation Execution.
 
@@ -116,6 +118,7 @@ def test_simulation(simple_grid):
     assert len(result.grid_states) == 12  # 60min / 5min steps
 
 
+@pytest.mark.case("GR-003")
 @pytest.mark.asyncio
 async def test_async_simulation(simple_grid):
     """Test Case - Asynchronous Grid Simulation.
@@ -149,6 +152,7 @@ async def test_async_simulation(simple_grid):
     assert result.total_energy_consumed > 0
 
 
+@pytest.mark.case("GR-004")
 def test_energy_by_source(simple_grid):
     """Test Case - Energy Production Breakdown by Source Type.
 
@@ -184,6 +188,7 @@ def test_energy_by_source(simple_grid):
     assert result.energy_by_source[EnergySource.WIND] > 0
 
 
+@pytest.mark.case("GR-005")
 def test_grid_frequency_stability(simple_grid):
     """Test Case - Grid Frequency Stability Under Normal Operation.
 
@@ -221,6 +226,7 @@ def test_grid_frequency_stability(simple_grid):
     assert result.average_frequency < 50.5
 
 
+@pytest.mark.case("GR-006")
 def test_summary_stats(simple_grid):
     """Test Case - Simulation Summary Statistics Generation.
 

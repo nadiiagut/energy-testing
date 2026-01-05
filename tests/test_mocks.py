@@ -35,6 +35,7 @@ from energy_testing.models.energy import EnergySource
 from energy_testing.test_constants import SUMMER_NOON, SUMMER_EVENING, SUMMER_NIGHT
 
 
+@pytest.mark.case("MK-001")
 def test_mock_producer():
     """Test Case - Mock Energy Producer Lifecycle and Output.
 
@@ -93,6 +94,7 @@ def test_mock_producer():
     assert output > 0
 
 
+@pytest.mark.case("MK-002")
 def test_mock_consumer():
     """Test Case - Mock Energy Consumer Demand and Price Response.
 
@@ -140,6 +142,7 @@ def test_mock_consumer():
     assert consumer.is_controllable
 
 
+@pytest.mark.case("MK-003")
 def test_mock_grid_operator():
     """Test Case - Mock Grid Operator Frequency and Price Management.
 
@@ -198,6 +201,7 @@ def test_mock_grid_operator():
     assert not grid_op.is_outage_active("area_2", outage_check_time)
 
 
+@pytest.mark.case("MK-004")
 def test_mock_energy_market():
     """Test Case - Mock Energy Market Bid/Offer Matching and Clearing.
 
@@ -258,6 +262,7 @@ def test_mock_energy_market():
     assert len(trades_no_trade) == 0
 
 
+@pytest.mark.case("MK-005")
 def test_producer_maintenance_windows():
     """Test Case - Producer Scheduled Maintenance Windows.
 
@@ -303,6 +308,7 @@ def test_producer_maintenance_windows():
     assert output > 0
 
 
+@pytest.mark.case("MK-006")
 def test_consumer_flexibility():
     """Test Case - Consumer Demand Flexibility and Controllability.
 
