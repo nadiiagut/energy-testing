@@ -19,7 +19,7 @@ The focus is not on protocol correctness or happy paths, but on **decision-makin
 ### This repository is:
 
 - A **deterministic testing harness** for distributed decision systems
-- A way to **validate invariants** under degraded conditions
+- A way to **validate decision invariants** under degraded conditions
 - A place to exercise **time, ordering, visibility, and human-impact guardrails**
 
 ### This repository is not:
@@ -43,6 +43,7 @@ Across all suites, the same principles apply:
 | Event ordering matters more than event correctness | Late facts can invalidate early decisions |
 | Customer-facing actions require higher confidence | Internal vs external thresholds differ |
 | Automation must be reversible until certainty is achieved | Hold windows, cancellation logic |
+| Automation is a decision-maker | Send-time rechecks and reversibility are required |
 
 Each test enforces at least one of these invariants.
 
@@ -134,6 +135,27 @@ These are examples — the full suite goes deeper.
 - Calendar rules are first-class inputs
 - Confidence thresholds are higher for customer-facing actions
 - Automation respects human context
+
+### 5️⃣ Automation Acting on Provisional State
+
+**Failure pattern:**  
+Automation behaves correctly according to rules, but acts before uncertainty has resolved. No component fails; the action itself becomes the incident.
+
+**Representative tests:**  
+- `SM-AR-011` — provisional state holds until reconciliation  
+- `SM-AR-012` — hard notification rechecked before release  
+- `SM-AR-013` — idempotency across duplicate evaluations  
+- `SM-AR-014` — acknowledgement without materialized state  
+
+**Located in:** `test_arrears_harness.py`
+
+**What the tests enforce:**
+- Decisions are reversible until confidence thresholds are met
+- Held actions are revalidated at release time
+- Duplicate or replayed evaluations do not amplify harm
+- Acknowledgements are not treated as final truth
+
+These tests focus on the layers *around* the product — orchestration, timing, and confidence — where many modern incidents originate.
 
 ---
 
