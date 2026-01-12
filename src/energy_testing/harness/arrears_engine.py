@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Tuple
 
 from .stubs import LedgerState, NotificationSink
@@ -28,7 +28,7 @@ class ArrearsEngine:
         self.cfg = cfg or ArrearsConfig()
 
     def evaluate(self, st: LedgerState, now: Optional[datetime] = None) -> Tuple[str, DecisionRecord]:
-        now = now or datetime.utcnow()
+        now = now or datetime.now(timezone.utc)
         reasons: List[str] = []
         confidence = 1.0
 
@@ -124,13 +124,13 @@ class ArrearsEngine:
         if notif_type == NotificationType.NONE:
             return dr, None
         if notif_type == NotificationType.DATA_ISSUE:
-            notif = sink.create(st.account_id, "DATA_ISSUE", dr.reason_codes)
+            notif = sink.create(st.account_id, "DATA_ISSUE", dr.reason_codes, now=now)
             sink.hold(notif, "uncertainty_present")
         elif notif_type == NotificationType.ARREARS_SOFT:
-            notif = sink.create(st.account_id, "ARREARS_SOFT", dr.reason_codes)
+            notif = sink.create(st.account_id, "ARREARS_SOFT", dr.reason_codes, now=now)
             sink.hold(notif, "soft_pending_recheck")
         elif notif_type == NotificationType.ARREARS_HARD:
-            notif = sink.create(st.account_id, "ARREARS_HARD", dr.reason_codes)
+            notif = sink.create(st.account_id, "ARREARS_HARD", dr.reason_codes, now=now)
             if self.cfg.hold_hard_seconds > 0:
                 sink.hold(notif, "hard_hold_window")
             else:

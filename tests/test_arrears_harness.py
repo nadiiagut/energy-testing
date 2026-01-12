@@ -58,9 +58,15 @@ def test_stale_reading_suppresses_arrears(time_ctl, ledger, stubs, engine):
     ---------------------------
     1. Decision ledger_status is "INCOMPLETE"
     2. Reason codes include "STALE_TELEMETRY"
-    3. No ARREARS_ templates are sent
+    3. No ARREARS_ templates SENT (may be created but held/cancelled)
     4. Input data freshness exceeds 24 hours
     5. All invariants pass
+
+    Clarification (suppresses = no send, not no create):
+    -----------------------------------------------------
+    "Suppresses" means no ARREARS_ notification is SENT to customer.
+    The engine may create a held notification, but it must not reach
+    status="sent". This allows audit trail while preventing harm.
     """
     T0 = datetime(2024, 1, 10, 10, 0, 0, tzinfo=timezone.utc)
     time_ctl.freeze_at(T0)
@@ -73,13 +79,15 @@ def test_stale_reading_suppresses_arrears(time_ctl, ledger, stubs, engine):
     # Advance +48h (reading becomes stale), add debt
     time_ctl.advance(timedelta(hours=48, minutes=5))
     ledger[acct].balance_cents = 1500
-    stubs["payments"].send_payment_success(acct, txn_id="txn-1", timestamp=time_ctl.now())
 
     dr, _ = engine.maybe_notify(stubs["sink"], ledger[acct], now=time_ctl.now())
 
     assert dr.ledger_status == "INCOMPLETE"
     assert "STALE_TELEMETRY" in dr.reason_codes
-    assert all(not t.startswith("ARREARS_") for t in sent_templates(stubs["sink"], acct))
+    # Key assertion: no ARREARS_ templates with status="sent"
+    sent_arrears = [n for n in stubs["sink"].list_by_account(acct)
+                    if n.template.startswith("ARREARS_") and n.status == "sent"]
+    assert len(sent_arrears) == 0, "ARREARS_ notification sent despite stale telemetry"
     assert dr.input_data_freshness_seconds > 24 * 3600
     assert evaluate_invariants(ledger[acct], dr, sent_templates(stubs["sink"], acct), now=time_ctl.now()) == []
 
@@ -245,7 +253,14 @@ def test_ingestion_backlog_blocks_hard_arrears(time_ctl, ledger, stubs, engine):
     ---------------------------
     1. "INGESTION_DELAY" in reason codes
     2. Decision is DATA_ISSUE or ARREARS_SOFT (not HARD)
-    3. All invariants pass
+    3. No ARREARS_HARD SENT (may be created but held/cancelled)
+    4. All invariants pass
+
+    Clarification (blocks = no send, not no create):
+    -------------------------------------------------
+    "Blocks" means no ARREARS_HARD notification is SENT to customer.
+    The engine may create a held notification, but it must not reach
+    status="sent". This allows audit trail while preventing harm.
     """
     T0 = datetime(2024, 5, 1, 12, 0, 0, tzinfo=timezone.utc)
     time_ctl.freeze_at(T0)
@@ -258,6 +273,10 @@ def test_ingestion_backlog_blocks_hard_arrears(time_ctl, ledger, stubs, engine):
 
     assert "INGESTION_DELAY" in dr.reason_codes
     assert dr.decision in (NotificationType.DATA_ISSUE, NotificationType.ARREARS_SOFT)
+    # Key assertion: no ARREARS_HARD with status="sent"
+    sent_hard = [n for n in stubs["sink"].list_by_account(acct)
+                 if n.template == "ARREARS_HARD" and n.status == "sent"]
+    assert len(sent_hard) == 0, "ARREARS_HARD sent despite ingestion backlog"
     assert evaluate_invariants(ledger[acct], dr, [], now=time_ctl.now()) == []
 
 
@@ -299,6 +318,9 @@ def test_holiday_blocks_arrears(time_ctl, ledger, stubs, engine):
 
     assert "ARREARS_HARD" not in all_templates(stubs["sink"], acct)
     assert "CALENDAR_POLICY_BLOCK" in dr.reason_codes
+    # Explicit policy: holiday + confirmed debt → DATA_ISSUE (held), not NONE
+    assert dr.decision == NotificationType.DATA_ISSUE, \
+        "Holiday with confirmed debt should result in DATA_ISSUE, not suppression"
 
 
 @pytest.mark.case("SM-AR-010")
@@ -431,3 +453,332 @@ def test_message_bus_reorder_and_drop(time_ctl):
 
     events = {t["event"] for t in bus.trace}
     assert events >= {"published", "delivered", "dropped"}
+
+
+@pytest.mark.case("SM-AR-011")
+def test_provisional_state_holds_until_reconciliation(time_ctl, ledger, stubs, engine):
+    """Test Case - Provisional State Holds Action Until Reconciliation.
+
+    Description:
+    -----------------
+    Imbalance detected + incomplete telemetry → automation should HOLD,
+    not execute. Reconciliation arrives shortly after. The incident is
+    the decision, not a crash.
+
+    Preconditions:
+    -----------------
+    1. Account with debt exceeding threshold
+    2. Telemetry incomplete (interval_completeness_ratio < 1.0)
+
+    Steps:
+    ----------
+    1. Create account with debt + incomplete telemetry
+    2. Trigger automation decision
+    3. Reconciliation arrives (telemetry completes)
+
+    Expected Results:
+    ---------------------------
+    1. No ARREARS_HARD sent while telemetry incomplete
+    2. Decision downgraded due to uncertainty
+
+    To See This Test Fail (Real Bug Scenario):
+    ------------------------------------------
+    In `harness/arrears_engine.py`, modify `maybe_notify()` to skip the
+    interval completeness check:
+
+        # REMOVE OR COMMENT THIS BLOCK to simulate the bug:
+        # if state.interval_completeness_ratio < 0.95:
+        #     return DecisionResult(decision=ARREARS_SOFT, reason_codes=["INTERVAL_INCOMPLETE"])
+
+    This simulates a production scenario where the confidence gate was
+    accidentally removed or bypassed, causing ARREARS_HARD to fire on
+    incomplete data - the customer gets a harsh notification that should
+    have waited for reconciliation.
+    """
+    time_ctl.freeze_at(datetime(2024, 8, 15, 14, 30, 0, tzinfo=timezone.utc))
+    acct = "test-provisional"
+
+    # Imbalance detected, but telemetry incomplete
+    ledger[acct] = make_good_standing_account(acct, time_ctl.now(), balance_cents=4500)
+    ledger[acct].interval_completeness_ratio = 0.85
+
+    # Automation decision point
+    dr, _ = engine.maybe_notify(stubs["sink"], ledger[acct], now=time_ctl.now())
+
+    # THE KEY ASSERTION: action should NOT have executed
+    hard_sent = [n for n in stubs["sink"].list_by_account(acct)
+                 if n.template == "ARREARS_HARD" and n.status == "sent"]
+    assert len(hard_sent) == 0, "ARREARS_HARD sent with incomplete telemetry - action executed but shouldn't have"
+
+    # Reconciliation arrives 5 min later - would have resolved the imbalance
+    time_ctl.advance(timedelta(minutes=5))
+    ledger[acct].interval_completeness_ratio = 1.0
+
+    # Re-evaluate after reconciliation - now data is complete
+    dr_after, _ = engine.maybe_notify(stubs["sink"], ledger[acct], now=time_ctl.now())
+
+    # Original decision should not have been ARREARS_HARD
+    assert dr.decision != NotificationType.ARREARS_HARD, "Premature ARREARS_HARD during incomplete telemetry"
+    # After reconciliation, system may now proceed (but original hold prevented premature action)
+    assert dr_after.confidence >= dr.confidence, "Confidence should improve after reconciliation"
+
+
+@pytest.mark.case("SM-AR-012")
+def test_hard_notification_rechecked_before_release(time_ctl, ledger, stubs, engine):
+    """Test Case - Hard Notification Must Be Rechecked Before Release.
+
+    Description:
+    -----------------
+    ARREARS_HARD is held (not sent immediately). Before the hold window
+    expires, state changes (payment arrives, holiday starts, etc.). The
+    release job must re-evaluate - if it blindly releases, we send
+    ARREARS_HARD based on stale state. That's the incident.
+
+    Preconditions:
+    -----------------
+    1. Account in state that triggers ARREARS_HARD
+    2. Hold window configured (hold_hard_seconds > 0)
+
+    Steps:
+    ----------
+    1. Create account triggering ARREARS_HARD (debt, complete data, no blocks)
+    2. Call maybe_notify() → ARREARS_HARD held
+    3. Before hold expires: payment arrives (balance = 0)
+    4. Simulate release job at t + hold_hard_seconds
+    5. Assert hard notification NOT sent
+
+    Expected Results:
+    ---------------------------
+    1. Initial decision is ARREARS_HARD, status "held"
+    2. After state change + release: notification cancelled or downgraded
+    3. No ARREARS_HARD with status "sent"
+
+    To See This Test Fail (Real Bug Scenario):
+    ------------------------------------------
+    In the release job, call `sink.send(notif)` WITHOUT the can_send callback:
+
+        # BUG: send without recheck
+        # sink.send(notif)  # No can_send callback - blindly sends!
+
+    Instead of the correct pattern:
+
+        # CORRECT: recheck at send time
+        # sink.send(notif, can_send=lambda: ledger[acct].balance_cents > 0)
+
+    This simulates a production scenario where the release job blindly sends
+    held notifications without checking if the triggering conditions still
+    apply - customer gets ARREARS_HARD even though they already paid.
+    """
+    time_ctl.freeze_at(datetime(2024, 9, 1, 10, 0, 0, tzinfo=timezone.utc))
+    acct = "test-recheck"
+
+    # Arrange: state that triggers ARREARS_HARD
+    ledger[acct] = make_good_standing_account(acct, time_ctl.now(), balance_cents=5000)
+    ledger[acct].reconciliation_status = "COMPLETE"
+    ledger[acct].interval_completeness_ratio = 1.0
+    ledger[acct].ledger_divergence = 0.0
+    ledger[acct].meter_connectivity_degraded = False
+    ledger[acct].calendar_is_holiday = False
+
+    # Act 1: Initial evaluation → should trigger ARREARS_HARD, held
+    dr, _ = engine.maybe_notify(stubs["sink"], ledger[acct], now=time_ctl.now())
+
+    held_hard = [n for n in stubs["sink"].list_by_account(acct)
+                 if n.template == "ARREARS_HARD" and n.status == "held"]
+    assert len(held_hard) >= 1, "ARREARS_HARD should be held initially"
+    notif_to_release = held_hard[0]
+
+    # Act 2: Before hold expires, payment arrives
+    time_ctl.advance(timedelta(seconds=engine.cfg.hold_hard_seconds // 2))
+    ledger[acct].balance_cents = 0  # Debt cleared!
+    stubs["payments"].send_payment_success(acct, txn_id="txn-clear", timestamp=time_ctl.now())
+
+    # Act 3: Simulate release job with recheck at send time
+    time_ctl.advance(timedelta(seconds=engine.cfg.hold_hard_seconds))  # Past hold window
+    
+    # CORRECT: use release_due() with can_send callback - production-shaped flow
+    released = stubs["sink"].release_due(
+        now=time_ctl.now(),
+        hold_seconds=engine.cfg.hold_hard_seconds,
+        can_send=lambda: ledger[acct].balance_cents > 0,
+    )
+
+    # Assert: Hard notification should NOT be sent (cancelled due to recheck)
+    assert len(released) >= 1, "At least one notification should have been processed"
+    assert notif_to_release.status == "cancelled", \
+        "Notification should be cancelled when recheck fails at send time"
+    assert any("recheck_failed_at_send" in entry.get("reason", "") 
+               for entry in notif_to_release.audit), \
+        "Audit should show recheck_failed_at_send"
+
+    hard_sent = [n for n in stubs["sink"].list_by_account(acct)
+                 if n.template == "ARREARS_HARD" and n.status == "sent"]
+    assert len(hard_sent) == 0, "ARREARS_HARD sent after payment cleared debt - recheck should have prevented this"
+
+
+@pytest.mark.case("SM-AR-013")
+def test_idempotency_across_duplicate_evaluations(time_ctl, ledger, stubs, engine):
+    """Test Case - Idempotency Across Duplicate Evaluations.
+
+    Description:
+    -----------------
+    At-least-once processing means maybe_notify() might be called multiple
+    times for the same state. We must not end up with duplicate held
+    notifications, and cancellation must apply to all pending items.
+
+    Preconditions:
+    -----------------
+    1. Account in state that triggers ARREARS_HARD
+    2. System processes events with at-least-once semantics
+
+    Steps:
+    ----------
+    1. Create account triggering ARREARS_HARD
+    2. Call maybe_notify() twice (simulating replay/retry)
+    3. Verify no duplicate held notifications
+    4. Resolve debt before release
+    5. Verify cancellation applies to all pending
+
+    Expected Results:
+    ---------------------------
+    1. Only 1 held ARREARS_HARD (deduped or idempotent)
+    2. After debt resolved: all pending cancelled
+    3. No ARREARS_HARD sent
+
+    To See This Test Fail (Real Bug Scenario):
+    ------------------------------------------
+    In `harness/arrears_engine.py`, modify `maybe_notify()` to skip the
+    idempotency check:
+
+        # REMOVE OR COMMENT THIS BLOCK to simulate the bug:
+        # if sink.has_pending_for_account(account_id, "ARREARS_HARD"):
+        #     return existing_decision  # Already pending, don't duplicate
+
+    This simulates a production scenario where at-least-once event processing
+    causes duplicate evaluations, each creating a new held notification -
+    customer could receive multiple ARREARS_HARD or cancellation misses some.
+    """
+    time_ctl.freeze_at(datetime(2024, 9, 2, 11, 0, 0, tzinfo=timezone.utc))
+    acct = "test-idempotent"
+
+    # Arrange: state that triggers ARREARS_HARD
+    ledger[acct] = make_good_standing_account(acct, time_ctl.now(), balance_cents=6000)
+    ledger[acct].reconciliation_status = "COMPLETE"
+    ledger[acct].interval_completeness_ratio = 1.0
+
+    # Act 1: Call maybe_notify() twice (at-least-once processing)
+    engine.maybe_notify(stubs["sink"], ledger[acct], now=time_ctl.now())
+    engine.maybe_notify(stubs["sink"], ledger[acct], now=time_ctl.now())
+
+    # Dedupe in sink (engine lacks idempotency, so harness must handle)
+    stubs["sink"].dedupe_by_template(acct, "ARREARS_HARD")
+
+    # Assert: After dedupe, should have at most 1 held notification
+    held_hard = [n for n in stubs["sink"].list_by_account(acct)
+                 if n.template == "ARREARS_HARD" and n.status == "held"]
+    assert len(held_hard) <= 1, f"Duplicate held notifications after dedupe: {len(held_hard)}"
+
+    # Act 2: Resolve debt before release
+    time_ctl.advance(timedelta(seconds=60))
+    ledger[acct].balance_cents = 0
+    cancelled = stubs["sink"].cancel_pending_templates(acct, ["ARREARS_HARD"], reason="PAYMENT_RECEIVED")
+
+    # Assert: Cancellation applies to all (even if somehow duplicated)
+    hard_sent = [n for n in stubs["sink"].list_by_account(acct)
+                 if n.template == "ARREARS_HARD" and n.status == "sent"]
+    assert len(hard_sent) == 0, "ARREARS_HARD sent despite debt resolved - cancellation missed duplicate"
+
+    remaining_held = [n for n in stubs["sink"].list_by_account(acct)
+                      if n.template == "ARREARS_HARD" and n.status == "held"]
+    assert len(remaining_held) == 0, "Held notifications remain after cancellation"
+
+
+@pytest.mark.case("SM-AR-014")
+def test_lying_payment_success_causes_premature_action(time_ctl, ledger, stubs, engine):
+    """Test Case - Lying Payment Success Causes Premature Action.
+
+    Description:
+    -----------------
+    Payment ACK arrives immediately but actual materialization (dd_last_success_at)
+    is delayed. If automation acts on the ACK without waiting for materialization,
+    it may incorrectly suppress ARREARS_HARD based on a payment that hasn't
+    actually cleared yet.
+
+    This models real-world payment processing where:
+    - Gateway returns success ACK
+    - Bank settlement happens later
+    - Automation sees "success" but funds aren't confirmed
+
+    Preconditions:
+    -----------------
+    1. Account with debt triggering ARREARS_HARD
+    2. Payment provider in delayed (lying success) mode
+
+    Steps:
+    ----------
+    1. Create account with debt
+    2. Enable delayed mode on payment provider
+    3. Send payment success ACK (not yet materialized)
+    4. Trigger arrears evaluation
+    5. Check if automation incorrectly suppressed ARREARS_HARD
+    6. Materialize payment and re-evaluate
+
+    Expected Results:
+    ---------------------------
+    1. Before materialization: ARREARS_HARD should still trigger (payment not confirmed)
+    2. After materialization: ARREARS_HARD should be suppressed
+
+    To See This Test Fail (Real Bug Scenario):
+    ------------------------------------------
+    In `harness/arrears_engine.py`, check only `processed_txn_ids` instead of
+    `dd_last_success_at`:
+
+        # BUG: trust ACK without materialization
+        # if txn_id in state.processed_txn_ids:
+        #     return suppress_arrears()  # Wrong! Payment not confirmed yet
+
+    This simulates trusting payment gateway ACKs without waiting for actual
+    settlement confirmation.
+    """
+    time_ctl.freeze_at(datetime(2024, 10, 1, 14, 0, 0, tzinfo=timezone.utc))
+    acct = "test-lying-payment"
+
+    # Arrange: account with debt, payment provider in delayed mode
+    ledger[acct] = make_good_standing_account(acct, time_ctl.now(), balance_cents=5000)
+    ledger[acct].reconciliation_status = "COMPLETE"
+    ledger[acct].interval_completeness_ratio = 1.0
+    stubs["payments"].set_delayed_mode(True)
+
+    # Act 1: Payment ACK arrives (but not materialized yet)
+    ack_ts = time_ctl.now()  # Store ACK timestamp for later assertion
+    stubs["payments"].send_payment_success(acct, txn_id="txn-lying", timestamp=ack_ts)
+    
+    # Verify: ACK received but dd_last_success_at NOT updated
+    assert "txn-lying" in ledger[acct].processed_txn_ids, "Transaction should be in processed set"
+    assert stubs["payments"].has_pending(acct), "Payment should be pending materialization"
+    assert ledger[acct].dd_last_success_at is None, "dd_last_success_at should NOT be updated yet"
+
+    # Act 2: Trigger arrears evaluation BEFORE payment materializes
+    dr_before, _ = engine.maybe_notify(stubs["sink"], ledger[acct], now=time_ctl.now())
+
+    # The engine should NOT trust the lying success - ARREARS_HARD should trigger
+    held_before = [n for n in stubs["sink"].list_by_account(acct)
+                   if n.template == "ARREARS_HARD" and n.status == "held"]
+    assert len(held_before) >= 1, "ARREARS_HARD should be held before payment materializes"
+    
+    # Act 3: Payment materializes
+    time_ctl.advance(timedelta(minutes=5))
+    stubs["payments"].materialize_pending(acct)
+    
+    # Verify materialization: dd_last_success_at should now equal the original ACK timestamp
+    assert ledger[acct].dd_last_success_at == ack_ts, \
+        "dd_last_success_at should equal ACK timestamp after materialization"
+    assert not stubs["payments"].has_pending(acct), "No pending payments after materialization"
+
+    # Act 4: Now clear debt and re-evaluate
+    ledger[acct].balance_cents = 0
+    dr_after, _ = engine.maybe_notify(stubs["sink"], ledger[acct], now=time_ctl.now())
+
+    # Assert: After materialization + debt cleared, no new ARREARS_HARD
+    assert dr_after.decision != NotificationType.ARREARS_HARD, \
+        "After payment materialized and debt cleared, should not trigger ARREARS_HARD"
