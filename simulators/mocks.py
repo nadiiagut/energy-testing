@@ -7,7 +7,7 @@ from typing import Dict, List, Optional, Callable, Any
 import random
 import json
 
-from ..models.energy import EnergySource, EnergyReading
+from models.energy import EnergySource, EnergyReading
 
 
 class MockEnergyProducer:

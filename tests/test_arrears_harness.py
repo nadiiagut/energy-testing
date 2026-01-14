@@ -7,13 +7,13 @@ Uses conftest fixtures: time_ctl, ledger, stubs, engine, make_good_standing_acco
 import pytest
 from datetime import datetime, timedelta, timezone
 
-from energy_testing.harness import (
+from harness import (
     DeterministicBus,
     LedgerState,
     NotificationType,
     evaluate_invariants,
 )
-from energy_testing.test_constants import make_good_standing_account, SUMMER_NOON, CHRISTMAS
+from tests.test_constants import make_good_standing_account, SUMMER_NOON, CHRISTMAS
 
 
 # =============================================================================

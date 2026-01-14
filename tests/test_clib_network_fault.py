@@ -38,7 +38,7 @@ import time
 from pathlib import Path
 from textwrap import dedent
 
-from energy_testing.test_constants import skip_unless_linux
+from tests.test_constants import skip_unless_linux
 
 
 # =============================================================================

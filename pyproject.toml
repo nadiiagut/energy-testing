@@ -35,3 +35,8 @@ dev = [
 asyncio_mode = "auto"
 testpaths = ["tests"]
 python_files = "test_*.py"
+pythonpath = ["."]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["harness*", "simulators*", "models*", "faults*", "scenarios*", "services*", "utils*"]

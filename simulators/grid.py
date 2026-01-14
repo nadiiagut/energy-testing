@@ -4,7 +4,7 @@ import random
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
-from ..models.energy import (
+from models.energy import (
     EnergySource,
     EnergyGridState,
     SimulationResult,

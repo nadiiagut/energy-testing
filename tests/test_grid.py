@@ -23,9 +23,9 @@ CDN ANALOGY:
 import pytest
 from datetime import datetime, timedelta, timezone
 
-from energy_testing.simulators.grid import EnergyGridSimulator
-from energy_testing.models.energy import EnergySource
-from energy_testing.test_constants import SUMMER_NOON
+from simulators.grid import EnergyGridSimulator
+from models.energy import EnergySource
+from tests.test_constants import SUMMER_NOON
 
 
 @pytest.fixture

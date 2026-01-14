@@ -25,14 +25,14 @@ CDN ANALOGY:
 import pytest
 from datetime import datetime, timedelta, timezone
 
-from energy_testing.simulators.mocks import (
+from simulators.mocks import (
     MockEnergyProducer,
     MockEnergyConsumer,
     MockGridOperator,
     MockEnergyMarket,
 )
-from energy_testing.models.energy import EnergySource
-from energy_testing.test_constants import SUMMER_NOON, SUMMER_EVENING, SUMMER_NIGHT
+from models.energy import EnergySource
+from tests.test_constants import SUMMER_NOON, SUMMER_EVENING, SUMMER_NIGHT
 
 
 @pytest.mark.case("MK-001")

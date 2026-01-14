@@ -1,0 +1,80 @@
+{
+  "scenario_id": "FAST-DF-DT-001",
+  "name": "Rapid Frequency Deviation",
+  "description": "Models sudden generation loss causing rapid rate of change of frequency (RoCoF). Mirrors events like interconnector trips or large generator failures.",
+  "category": "frequency_event",
+  "severity": "high",
+  
+  "frequency_trajectory": {
+    "nominal_hz": 50.0,
+    "events": [
+      {
+        "time_offset_seconds": 0,
+        "frequency_hz": 50.0,
+        "state": "normal"
+      },
+      {
+        "time_offset_seconds": 0.5,
+        "frequency_hz": 49.7,
+        "state": "deviation_start"
+      },
+      {
+        "time_offset_seconds": 1.0,
+        "frequency_hz": 49.5,
+        "state": "nadir_approach"
+      },
+      {
+        "time_offset_seconds": 2.0,
+        "frequency_hz": 49.3,
+        "state": "nadir"
+      },
+      {
+        "time_offset_seconds": 5.0,
+        "frequency_hz": 49.5,
+        "state": "recovery_start"
+      },
+      {
+        "time_offset_seconds": 30.0,
+        "frequency_hz": 49.8,
+        "state": "recovery_progress"
+      },
+      {
+        "time_offset_seconds": 60.0,
+        "frequency_hz": 50.0,
+        "state": "restored"
+      }
+    ]
+  },
+  
+  "ramp_rate": {
+    "max_df_dt_hz_per_sec": -0.5,
+    "threshold_trigger_hz_per_sec": -0.125,
+    "description": "RoCoF exceeds typical protection relay settings"
+  },
+  
+  "duration": {
+    "event_duration_seconds": 60,
+    "critical_window_seconds": 10,
+    "recovery_window_seconds": 50
+  },
+  
+  "recovery_behavior": {
+    "type": "exponential_decay",
+    "time_constant_seconds": 15,
+    "target_frequency_hz": 50.0,
+    "overshoot_allowed": false
+  },
+  
+  "penalty_implications": {
+    "dfr_activation_expected": true,
+    "lfdd_risk": true,
+    "revenue_impact": "high",
+    "notes": "Fast response assets should activate within 1 second"
+  },
+  
+  "test_assertions": {
+    "frequency_nadir_above_hz": 49.2,
+    "recovery_within_seconds": 60,
+    "dfr_response_within_seconds": 1.0
+  }
+}

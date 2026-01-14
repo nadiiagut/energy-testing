@@ -1,0 +1,100 @@
+{
+  "scenario_id": "PARTIAL-CAP-001",
+  "name": "Partial Capacity Availability",
+  "description": "Scenario where only partial asset capacity is available during a frequency event. Models degraded operations, maintenance windows, or partial outages.",
+  "category": "capacity_constraint",
+  "severity": "medium",
+  
+  "frequency_trajectory": {
+    "nominal_hz": 50.0,
+    "events": [
+      {
+        "time_offset_seconds": 0,
+        "frequency_hz": 50.0,
+        "state": "normal"
+      },
+      {
+        "time_offset_seconds": 5,
+        "frequency_hz": 49.6,
+        "state": "deviation"
+      },
+      {
+        "time_offset_seconds": 15,
+        "frequency_hz": 49.5,
+        "state": "nadir"
+      },
+      {
+        "time_offset_seconds": 60,
+        "frequency_hz": 49.7,
+        "state": "partial_recovery"
+      },
+      {
+        "time_offset_seconds": 120,
+        "frequency_hz": 49.9,
+        "state": "near_restored"
+      },
+      {
+        "time_offset_seconds": 180,
+        "frequency_hz": 50.0,
+        "state": "restored"
+      }
+    ]
+  },
+  
+  "capacity_constraints": {
+    "available_capacity_percent": 60,
+    "constraint_reasons": [
+      "scheduled_maintenance",
+      "partial_outage", 
+      "ambient_derating",
+      "communication_loss"
+    ],
+    "affected_assets": {
+      "battery_storage": {
+        "available_percent": 50,
+        "reason": "soc_limitation"
+      },
+      "demand_response": {
+        "available_percent": 70,
+        "reason": "partial_enrollment"
+      },
+      "generation": {
+        "available_percent": 80,
+        "reason": "maintenance_window"
+      }
+    }
+  },
+  
+  "ramp_rate": {
+    "max_df_dt_hz_per_sec": -0.08,
+    "description": "Moderate deviation rate"
+  },
+  
+  "duration": {
+    "event_duration_seconds": 180,
+    "critical_window_seconds": 30,
+    "recovery_window_seconds": 150
+  },
+  
+  "recovery_behavior": {
+    "type": "constrained_linear",
+    "max_ramp_rate_mw_per_sec": 10,
+    "target_frequency_hz": 50.0,
+    "capacity_limited": true
+  },
+  
+  "penalty_implications": {
+    "partial_delivery_expected": true,
+    "penalty_calculation": "pro_rata",
+    "availability_declaration_test": true,
+    "revenue_impact": "reduced",
+    "notes": "Tests honest capacity declaration and partial delivery"
+  },
+  
+  "test_assertions": {
+    "delivery_matches_declaration": true,
+    "no_overcommitment": true,
+    "availability_signal_accurate": true,
+    "penalty_correctly_calculated": true
+  }
+}

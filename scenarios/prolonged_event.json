@@ -1,0 +1,82 @@
+{
+  "scenario_id": "PROLONGED-001",
+  "name": "Prolonged Frequency Event",
+  "description": "Extended duration low-frequency event requiring sustained response. Models scenarios like prolonged demand-supply imbalance or slow generation ramp failures.",
+  "category": "frequency_event",
+  "severity": "medium",
+  
+  "frequency_trajectory": {
+    "nominal_hz": 50.0,
+    "events": [
+      {
+        "time_offset_seconds": 0,
+        "frequency_hz": 50.0,
+        "state": "normal"
+      },
+      {
+        "time_offset_seconds": 60,
+        "frequency_hz": 49.85,
+        "state": "drift_start"
+      },
+      {
+        "time_offset_seconds": 300,
+        "frequency_hz": 49.7,
+        "state": "sustained_low"
+      },
+      {
+        "time_offset_seconds": 600,
+        "frequency_hz": 49.65,
+        "state": "minimum"
+      },
+      {
+        "time_offset_seconds": 900,
+        "frequency_hz": 49.7,
+        "state": "recovery_start"
+      },
+      {
+        "time_offset_seconds": 1200,
+        "frequency_hz": 49.85,
+        "state": "recovery_progress"
+      },
+      {
+        "time_offset_seconds": 1800,
+        "frequency_hz": 50.0,
+        "state": "restored"
+      }
+    ]
+  },
+  
+  "ramp_rate": {
+    "max_df_dt_hz_per_sec": -0.005,
+    "threshold_trigger_hz_per_sec": -0.125,
+    "description": "Slow drift, below RoCoF protection thresholds"
+  },
+  
+  "duration": {
+    "event_duration_seconds": 1800,
+    "critical_window_seconds": 600,
+    "recovery_window_seconds": 900
+  },
+  
+  "recovery_behavior": {
+    "type": "linear_ramp",
+    "ramp_rate_hz_per_min": 0.02,
+    "target_frequency_hz": 50.0,
+    "overshoot_allowed": true,
+    "max_overshoot_hz": 0.05
+  },
+  
+  "penalty_implications": {
+    "dfr_activation_expected": false,
+    "sustained_response_required": true,
+    "energy_delivery_mwh": "significant",
+    "revenue_impact": "medium",
+    "notes": "Tests energy capacity, not just power response"
+  },
+  
+  "test_assertions": {
+    "frequency_nadir_above_hz": 49.5,
+    "recovery_within_seconds": 1800,
+    "sustained_delivery_minutes": 30
+  }
+}

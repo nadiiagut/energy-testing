@@ -14,6 +14,62 @@ The focus is not on protocol correctness or happy paths, but on **decision-makin
 
 ---
 
+## ⚡ 30-Second Quickstart
+
+Run one scenario + one fault + see which configuration saves money:
+
+```python
+# quickstart.py
+from scenarios import load_scenario
+from harness.control_loop import ControlLoopFactory
+from faults import InverterLossFault, InverterLossConfig, InverterLossMode
+from report_engine import quick_diff
+
+# Load a fast frequency event scenario
+scenario = load_scenario("fast_df_dt")
+
+# Create two controllers: baseline vs degraded
+baseline = ControlLoopFactory.battery_10mw_20mwh()
+degraded = ControlLoopFactory.battery_10mw_20mwh()
+
+# Inject 25% inverter loss fault
+fault = InverterLossFault(InverterLossConfig(
+    mode=InverterLossMode.FIXED_PERCENT,
+    capacity_loss_percent=25.0
+))
+fault.activate()
+
+# Quick diff: which saves money?
+result = quick_diff(
+    baseline_k_factor=0.02,   # Baseline: 2% deviation
+    comparison_k_factor=0.08, # With fault: 8% deviation
+    contracted_mw=10.0,
+    rate_per_mw_hour=12.0,
+    hours=1.0
+)
+
+print(f"Saves money: {result['saves_money']}")
+print(f"Recommendation: {result['recommendation']}")
+print(f"Savings: £{result['savings']:.2f}")
+```
+
+```bash
+# Run it
+cd energy-testing
+python quickstart.py
+# Output:
+# Saves money: False
+# Recommendation: REJECT
+# Savings: £-10.80
+```
+
+Or run the full test suite:
+```bash
+pytest tests/ -v
+```
+
+---
+
 ## What This Repository Is (and Is Not)
 
 ### This repository is:
@@ -53,26 +109,46 @@ Each test enforces at least one of these invariants.
 
 ```
 energy-testing/
-├── src/energy_testing/
-│   ├── harness/                    # Test harness infrastructure
-│   │   ├── time_control.py         # Deterministic time manipulation
-│   │   ├── message_bus.py          # Message ordering, delay, drop, duplicate
-│   │   ├── stubs.py                # Service stubs (ingestion, payments, notifications)
-│   │   ├── decision_trace.py       # Decision records with reason codes
-│   │   ├── invariants.py           # Core invariant definitions (INV-1..4)
-│   │   └── arrears_engine.py       # Arrears decision logic with confidence gating
-│   ├── simulators/
-│   │   ├── grid.py                 # Energy grid simulator
-│   │   └── mocks.py                # Mock producers, consumers, operators, markets
-│   ├── models/
-│   │   └── energy.py               # Data models (EnergySource, EnergyReading, etc.)
-│   └── test_constants.py           # Shared test constants and helpers
+├── harness/                        # Test harness infrastructure
+│   ├── time_control.py             # Deterministic time manipulation
+│   ├── message_bus.py              # Message ordering, delay, drop, duplicate
+│   ├── stubs.py                    # Service stubs (ingestion, payments, notifications)
+│   ├── decision_trace.py           # Decision records with reason codes
+│   ├── invariants.py               # Core invariant definitions (INV-1..4)
+│   ├── arrears_engine.py           # Arrears decision logic with confidence gating
+│   └── control_loop.py             # Control loop emulator (phase lag, ramp limits)
+│
+├── faults/                         # Degradation & fault injection
+│   ├── inverter_loss.py            # Partial inverter capacity loss
+│   ├── telemetry_drop.py           # Intermittent telemetry failures
+│   ├── control_lag.py              # Degraded control response timing
+│   ├── soe_bias.py                 # State of energy measurement drift
+│   └── mode_misclassification.py   # Service mode mismatch (DC/DR/DM)
+│
+├── scenarios/                      # Grid stress patterns (JSON + loader)
+│   ├── scenario_loader.py          # Load and interpolate frequency scenarios
+│   ├── fast_df_dt.json             # Rapid frequency deviation
+│   ├── prolonged_event.json        # Extended 20-30 min events
+│   ├── oscillatory_frequency.json  # Oscillating frequency patterns
+│   └── partial_capacity.json       # Reduced capacity scenarios
+│
+├── simulators/                     # Grid simulation
+│   ├── grid.py                     # Energy grid simulator
+│   └── mocks.py                    # Mock producers, consumers, operators, markets
+│
+├── models/                         # Data models
+│   └── energy.py                   # EnergySource, ServiceMode, ObservedSignal, etc.
+│
+├── penalty_model.py                # K-factor, SoE breach, availability derating
+├── report_engine.py                # "Which change saves money?" comparison reports
 │
 ├── tests/
 │   ├── test_arrears_harness.py     # Decision logic, confidence gating, notifications
+│   ├── test_penalty_revenue.py     # Penalty & revenue evaluation (PE-REV-001..005)
 │   ├── test_clib_network_fault.py  # LD_PRELOAD fault injection (partial visibility)
 │   ├── test_grid.py                # System-level behavior & stability
 │   ├── test_mocks.py               # Component behavior (stand-ins for real APIs)
+│   ├── test_constants.py           # Shared test constants and helpers
 │   └── conftest.py                 # Fixtures: time control, ledgers, stubs
 │
 └── test_resources/
@@ -156,6 +232,19 @@ Automation behaves correctly according to rules, but acts before uncertainty has
 - Acknowledgements are not treated as final truth
 
 These tests focus on the layers *around* the product — orchestration, timing, and confidence — where many modern incidents originate.
+
+### 6️⃣ Service Mode Misclassification (Wrong Envelope)
+
+**Failure pattern:** Asset is contracted as DC (Dynamic Containment) but controller runs as DR (Dynamic Regulation). Power response "looks plausible" but fails the contracted service envelope.
+
+**Representative test:** `PE-REV-005` — mode misclassification penalizes even when power seems OK  
+**Located in:** `test_penalty_revenue.py`
+
+**What the test enforces:**
+- Service modes (DC/DR/DM) have different response envelopes
+- Penalties are evaluated against the *contracted* mode, not actual behavior
+- "Correct power, wrong envelope" is a distinct failure class
+- Mode-specific scoring catches issues K-factor alone may miss
 
 ---
 

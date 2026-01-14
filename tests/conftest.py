@@ -3,24 +3,24 @@
 import pytest
 from datetime import datetime, timedelta, timezone
 
-from energy_testing.harness import (
+from harness import (
     TimeController,
     MeterIngestionStub,
     PaymentProviderStub,
     NotificationSink,
     ArrearsEngine,
 )
-from energy_testing.simulators.grid import EnergyGridSimulator
-from energy_testing.simulators.mocks import (
+from simulators.grid import EnergyGridSimulator
+from simulators.mocks import (
     MockEnergyProducer,
     MockEnergyConsumer,
     MockGridOperator,
     MockEnergyMarket,
 )
-from energy_testing.models.energy import EnergySource
+from models.energy import EnergySource
 
 # Import shared constants
-from energy_testing.test_constants import (
+from tests.test_constants import (
     SUMMER_NOON,
     SUMMER_MORNING,
     SUMMER_EVENING,

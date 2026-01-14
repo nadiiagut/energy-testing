@@ -1,0 +1,89 @@
+{
+  "scenario_id": "OSCILLATORY-001",
+  "name": "Oscillatory Frequency Pattern",
+  "description": "Frequency oscillations that can cause hunting behavior in poorly-tuned controllers. Models inter-area oscillations or control system instability.",
+  "category": "frequency_event",
+  "severity": "medium",
+  
+  "frequency_trajectory": {
+    "nominal_hz": 50.0,
+    "oscillation_pattern": {
+      "type": "sinusoidal",
+      "amplitude_hz": 0.15,
+      "period_seconds": 8,
+      "damping_ratio": 0.1,
+      "cycles": 10
+    },
+    "events": [
+      {
+        "time_offset_seconds": 0,
+        "frequency_hz": 50.0,
+        "state": "normal"
+      },
+      {
+        "time_offset_seconds": 2,
+        "frequency_hz": 50.15,
+        "state": "oscillation_peak"
+      },
+      {
+        "time_offset_seconds": 6,
+        "frequency_hz": 49.85,
+        "state": "oscillation_trough"
+      },
+      {
+        "time_offset_seconds": 10,
+        "frequency_hz": 50.12,
+        "state": "oscillation_peak_damped"
+      },
+      {
+        "time_offset_seconds": 14,
+        "frequency_hz": 49.88,
+        "state": "oscillation_trough_damped"
+      },
+      {
+        "time_offset_seconds": 40,
+        "frequency_hz": 50.03,
+        "state": "settling"
+      },
+      {
+        "time_offset_seconds": 80,
+        "frequency_hz": 50.0,
+        "state": "restored"
+      }
+    ]
+  },
+  
+  "ramp_rate": {
+    "max_df_dt_hz_per_sec": 0.12,
+    "bidirectional": true,
+    "description": "Alternating positive and negative RoCoF"
+  },
+  
+  "duration": {
+    "event_duration_seconds": 80,
+    "oscillation_period_seconds": 8,
+    "settling_time_seconds": 40
+  },
+  
+  "recovery_behavior": {
+    "type": "damped_oscillation",
+    "damping_ratio": 0.1,
+    "natural_frequency_hz": 0.125,
+    "target_frequency_hz": 50.0,
+    "settling_threshold_hz": 0.02
+  },
+  
+  "penalty_implications": {
+    "hunting_risk": true,
+    "control_stability_test": true,
+    "revenue_impact": "variable",
+    "notes": "Tests controller tuning and deadband settings"
+  },
+  
+  "test_assertions": {
+    "no_hunting_behavior": true,
+    "max_response_reversals": 5,
+    "settling_within_seconds": 80,
+    "deadband_respected": true
+  }
+}
